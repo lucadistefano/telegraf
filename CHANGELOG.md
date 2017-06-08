@@ -1,11 +1,21 @@
 ## v1.4 [unreleased]
 
 ### Release Notes
+
+- The `kafka_consumer` input has been updated to support Kafka 0.9 and
+  above style consumer offset handling.  The previous version of this plugin
+  supporting Kafka 0.8 and below is available as the `kafka_consumer_legacy`
+  plugin.
+
 ### Features
 
+- [#2487](https://github.com/influxdata/telegraf/pull/2487): Add Kafka 0.9+ consumer support
 - [#2773](https://github.com/influxdata/telegraf/pull/2773): Add support for self-signed certs to InfluxDB input plugin
 - [#2581](https://github.com/influxdata/telegraf/pull/2581): Add Docker container environment variables as tags. Only whitelisted
 - [#2817](https://github.com/influxdata/telegraf/pull/2817): Added timeout option to IPMI sensor plugin
+- [#2883](https://github.com/influxdata/telegraf/pull/2883): Add support for an optional SSL/TLS configuration to nginx input plugin
+- [#2882](https://github.com/influxdata/telegraf/pull/2882): Add timezone support for logparser timestamps.
+- [#2814](https://github.com/influxdata/telegraf/pull/2814): Add result_type field for http_response input.
 
 ### Bugfixes
 
@@ -15,14 +25,26 @@
 - [#2782](https://github.com/influxdata/telegraf/pull/2782): Reuse transports in input plugins
 - [#2815](https://github.com/influxdata/telegraf/issues/2815): Inputs processes fails with "no such process".
 - [#1137](https://github.com/influxdata/telegraf/issues/1137): Fix multiple plugin loading in win_perf_counters.
+- [#2855](https://github.com/influxdata/telegraf/pull/2855):  MySQL input: log and continue on field parse error.
+- [#2885](https://github.com/influxdata/telegraf/pull/2885): Fix timeout option in Windows ping input sample configuration.
 
-## v1.3.1 [unreleased]
+## v1.3.2 [unreleased]
+
+### Bugfixes
+
+- [#2862](https://github.com/influxdata/telegraf/issue/2862): Fix InfluxDB UDP metric splitting.
+
+## v1.3.1 [2017-05-31]
 
 ### Bugfixes
 
 - [#2749](https://github.com/influxdata/telegraf/pull/2749): Fixed sqlserver input to work with case sensitive server collation.
 - [#2782](https://github.com/influxdata/telegraf/pull/2782): Reuse transports in input plugins
 - [#2815](https://github.com/influxdata/telegraf/issues/2815): Inputs processes fails with "no such process".
+- [#2851](https://github.com/influxdata/telegraf/pull/2851): Fix InfluxDB output database quoting.
+- [#2856](https://github.com/influxdata/telegraf/issues/2856): Fix net input on older Linux kernels.
+- [#2848](https://github.com/influxdata/telegraf/pull/2848): Fix panic in mongo input.
+- [#2869](https://github.com/influxdata/telegraf/pull/2869): Fix length calculation of split metric buffer.
 
 ## v1.3 [2017-05-15]
 

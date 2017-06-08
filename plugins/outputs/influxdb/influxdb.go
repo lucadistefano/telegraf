@@ -2,7 +2,6 @@ package influxdb
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
 	"strings"
@@ -14,6 +13,11 @@ import (
 	"github.com/influxdata/telegraf/plugins/outputs"
 
 	"github.com/influxdata/telegraf/plugins/outputs/influxdb/client"
+)
+
+var (
+	// Quote Ident replacer.
+	qiReplacer = strings.NewReplacer("\n", `\n`, `\`, `\\`, `"`, `\"`)
 )
 
 var (
@@ -47,8 +51,7 @@ type InfluxDB struct {
 	// Precision is only here for legacy support. It will be ignored.
 	Precision string
 
-	clients      []client.Client
-	splitPayload bool
+	clients []client.Client
 }
 
 var sampleConfig = `
@@ -116,7 +119,6 @@ func (i *InfluxDB) Connect() error {
 				return fmt.Errorf("Error creating UDP Client [%s]: %s", u, err)
 			}
 			i.clients = append(i.clients, c)
-			i.splitPayload = true
 		default:
 			// If URL doesn't start with "udp", assume HTTP client
 			config := client.HTTPConfig{
@@ -167,26 +169,16 @@ func (i *InfluxDB) Description() string {
 	return "Configuration for influxdb server to send metrics to"
 }
 
-func (i *InfluxDB) getReader(metrics []telegraf.Metric) io.Reader {
-	if !i.splitPayload {
-		return metric.NewReader(metrics)
-	}
-
-	splitData := make([]telegraf.Metric, 0)
-	for _, m := range metrics {
-		splitData = append(splitData, m.Split(i.UDPPayload)...)
-	}
-	return metric.NewReader(splitData)
-}
-
 // Write will choose a random server in the cluster to write to until a successful write
 // occurs, logging each unsuccessful. If all servers fail, return error.
 func (i *InfluxDB) Write(metrics []telegraf.Metric) error {
+
 	bufsize := 0
 	for _, m := range metrics {
 		bufsize += m.Len()
 	}
-	r := i.getReader(metrics)
+
+	r := metric.NewReader(metrics)
 
 	// This will get set to nil if a successful write occurs
 	err := fmt.Errorf("Could not write to any InfluxDB server in cluster")
