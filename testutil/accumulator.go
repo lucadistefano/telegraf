@@ -42,6 +42,13 @@ func (a *Accumulator) NMetrics() uint64 {
 	return atomic.LoadUint64(&a.nMetrics)
 }
 
+func (a *Accumulator) FirstError() error {
+	if len(a.Errors) == 0 {
+		return nil
+	}
+	return a.Errors[0]
+}
+
 func (a *Accumulator) ClearMetrics() {
 	a.Lock()
 	defer a.Unlock()
@@ -65,8 +72,15 @@ func (a *Accumulator) AddFields(
 	if a.Discard {
 		return
 	}
-	if tags == nil {
-		tags = map[string]string{}
+
+	tagsCopy := map[string]string{}
+	for k, v := range tags {
+		tagsCopy[k] = v
+	}
+
+	fieldsCopy := map[string]interface{}{}
+	for k, v := range fields {
+		fieldsCopy[k] = v
 	}
 
 	if len(fields) == 0 {
@@ -91,7 +105,7 @@ func (a *Accumulator) AddFields(
 	p := &Metric{
 		Measurement: measurement,
 		Fields:      fields,
-		Tags:        tags,
+		Tags:        tagsCopy,
 		Time:        t,
 	}
 
@@ -120,6 +134,24 @@ func (a *Accumulator) AddMetrics(metrics []telegraf.Metric) {
 	for _, m := range metrics {
 		a.AddFields(m.Name(), m.Fields(), m.Tags(), m.Time())
 	}
+}
+
+func (a *Accumulator) AddSummary(
+	measurement string,
+	fields map[string]interface{},
+	tags map[string]string,
+	timestamp ...time.Time,
+) {
+	a.AddFields(measurement, fields, tags, timestamp...)
+}
+
+func (a *Accumulator) AddHistogram(
+	measurement string,
+	fields map[string]interface{},
+	tags map[string]string,
+	timestamp ...time.Time,
+) {
+	a.AddFields(measurement, fields, tags, timestamp...)
 }
 
 // AddError appends the given error to Accumulator.Errors.
@@ -258,6 +290,28 @@ func (a *Accumulator) AssertContainsTaggedFields(
 	assert.Fail(t, msg)
 }
 
+func (a *Accumulator) AssertDoesNotContainsTaggedFields(
+	t *testing.T,
+	measurement string,
+	fields map[string]interface{},
+	tags map[string]string,
+) {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if !reflect.DeepEqual(tags, p.Tags) {
+			continue
+		}
+
+		if p.Measurement == measurement {
+			assert.Equal(t, fields, p.Fields)
+			msg := fmt.Sprintf("found measurement %s with tags %v which should not be there", measurement, tags)
+			assert.Fail(t, msg)
+		}
+	}
+	return
+}
+
 func (a *Accumulator) AssertContainsFields(
 	t *testing.T,
 	measurement string,
@@ -273,6 +327,31 @@ func (a *Accumulator) AssertContainsFields(
 	}
 	msg := fmt.Sprintf("unknown measurement %s", measurement)
 	assert.Fail(t, msg)
+}
+
+func (a *Accumulator) HasPoint(
+	measurement string,
+	tags map[string]string,
+	fieldKey string,
+	fieldValue interface{},
+) bool {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if p.Measurement != measurement {
+			continue
+		}
+
+		if !reflect.DeepEqual(tags, p.Tags) {
+			continue
+		}
+
+		v, ok := p.Fields[fieldKey]
+		if ok && reflect.DeepEqual(v, fieldValue) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Accumulator) AssertDoesNotContainMeasurement(t *testing.T, measurement string) {
@@ -387,7 +466,7 @@ func (a *Accumulator) HasStringField(measurement string, field string) bool {
 	return false
 }
 
-// HasUIntValue returns true if the measurement has a UInt value
+// HasUIntField returns true if the measurement has a UInt value
 func (a *Accumulator) HasUIntField(measurement string, field string) bool {
 	a.Lock()
 	defer a.Unlock()
@@ -405,7 +484,7 @@ func (a *Accumulator) HasUIntField(measurement string, field string) bool {
 	return false
 }
 
-// HasFloatValue returns true if the given measurement has a float value
+// HasFloatField returns true if the given measurement has a float value
 func (a *Accumulator) HasFloatField(measurement string, field string) bool {
 	a.Lock()
 	defer a.Unlock()
@@ -436,6 +515,7 @@ func (a *Accumulator) HasMeasurement(measurement string) bool {
 	return false
 }
 
+// IntField returns the int value of the given measurement and field or false.
 func (a *Accumulator) IntField(measurement string, field string) (int, bool) {
 	a.Lock()
 	defer a.Unlock()
@@ -453,6 +533,61 @@ func (a *Accumulator) IntField(measurement string, field string) (int, bool) {
 	return 0, false
 }
 
+// Int64Field returns the int64 value of the given measurement and field or false.
+func (a *Accumulator) Int64Field(measurement string, field string) (int64, bool) {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if p.Measurement == measurement {
+			for fieldname, value := range p.Fields {
+				if fieldname == field {
+					v, ok := value.(int64)
+					return v, ok
+				}
+			}
+		}
+	}
+
+	return 0, false
+}
+
+// Uint64Field returns the int64 value of the given measurement and field or false.
+func (a *Accumulator) Uint64Field(measurement string, field string) (uint64, bool) {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if p.Measurement == measurement {
+			for fieldname, value := range p.Fields {
+				if fieldname == field {
+					v, ok := value.(uint64)
+					return v, ok
+				}
+			}
+		}
+	}
+
+	return 0, false
+}
+
+// Int32Field returns the int32 value of the given measurement and field or false.
+func (a *Accumulator) Int32Field(measurement string, field string) (int32, bool) {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if p.Measurement == measurement {
+			for fieldname, value := range p.Fields {
+				if fieldname == field {
+					v, ok := value.(int32)
+					return v, ok
+				}
+			}
+		}
+	}
+
+	return 0, false
+}
+
+// FloatField returns the float64 value of the given measurement and field or false.
 func (a *Accumulator) FloatField(measurement string, field string) (float64, bool) {
 	a.Lock()
 	defer a.Unlock()
@@ -470,6 +605,7 @@ func (a *Accumulator) FloatField(measurement string, field string) (float64, boo
 	return 0.0, false
 }
 
+// StringField returns the string value of the given measurement and field or false.
 func (a *Accumulator) StringField(measurement string, field string) (string, bool) {
 	a.Lock()
 	defer a.Unlock()
@@ -484,4 +620,22 @@ func (a *Accumulator) StringField(measurement string, field string) (string, boo
 		}
 	}
 	return "", false
+}
+
+// BoolField returns the bool value of the given measurement and field or false.
+func (a *Accumulator) BoolField(measurement string, field string) (bool, bool) {
+	a.Lock()
+	defer a.Unlock()
+	for _, p := range a.Metrics {
+		if p.Measurement == measurement {
+			for fieldname, value := range p.Fields {
+				if fieldname == field {
+					v, ok := value.(bool)
+					return v, ok
+				}
+			}
+		}
+	}
+
+	return false, false
 }

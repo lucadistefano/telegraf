@@ -2,6 +2,7 @@ package models
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/influxdata/telegraf"
@@ -34,6 +35,9 @@ type RunningOutput struct {
 
 	metrics     *buffer.Buffer
 	failMetrics *buffer.Buffer
+
+	// Guards against concurrent calls to the Output as described in #3009
+	sync.Mutex
 }
 
 func NewRunningOutput(
@@ -83,7 +87,7 @@ func NewRunningOutput(
 			map[string]string{"output": name},
 		),
 	}
-	ro.BufferLimit.Incr(int64(ro.MetricBufferLimit))
+	ro.BufferLimit.Set(int64(ro.MetricBufferLimit))
 	return ro
 }
 
@@ -101,12 +105,13 @@ func (ro *RunningOutput) AddMetric(m telegraf.Metric) {
 		tags := m.Tags()
 		fields := m.Fields()
 		t := m.Time()
+		tp := m.Type()
 		if ok := ro.Config.Filter.Apply(name, fields, tags); !ok {
 			ro.MetricsFiltered.Incr(1)
 			return
 		}
 		// error is not possible if creating from another metric, so ignore.
-		m, _ = metric.New(name, tags, fields, t)
+		m, _ = metric.New(name, tags, fields, t, tp)
 	}
 
 	ro.metrics.Add(m)
@@ -115,6 +120,7 @@ func (ro *RunningOutput) AddMetric(m telegraf.Metric) {
 		err := ro.write(batch)
 		if err != nil {
 			ro.failMetrics.Add(batch...)
+			log.Printf("E! Error writing to output [%s]: %v", ro.Name, err)
 		}
 	}
 }
@@ -169,6 +175,8 @@ func (ro *RunningOutput) write(metrics []telegraf.Metric) error {
 	if nMetrics == 0 {
 		return nil
 	}
+	ro.Lock()
+	defer ro.Unlock()
 	start := time.Now()
 	err := ro.Output.Write(metrics)
 	elapsed := time.Since(start)
