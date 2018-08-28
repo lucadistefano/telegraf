@@ -156,7 +156,7 @@ The column "ARCHIVED" is ignored
 
 	driver = "oci8"
 	keep_connection=true
-	servers  = ["telegraf/monitor@10.62.6.1:1522/tunapit"]
+	servers  = ["telegraf/monitor@10.62.6.1:1522/tuneit"]
 	hosts=["oraclehost.my.lan"]
 	## Queries to perform
 	[[inputs.sql.query]]
