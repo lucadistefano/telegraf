@@ -86,33 +86,39 @@ var sampleConfig = `
 
 type Query struct {
 	Query       string
-	Measurement string
+	//
+	QueryScript string
+	//	Parameters  []string //TODO	
+	
 	//
 	FieldTimestamp string
 	TimestampUnit  string
-	//
+	
+	// Horizontal structure (measurement is the table, each rows contains all : values and tags)
+	Measurement string
 	TagCols   []string
 	FieldCols []string
-	//
+	
+	// Explicit time conversion
 	IntFields   []string
 	FloatFields []string
 	BoolFields  []string
 	TimeFields  []string
-	//
+	
+	// Vertical structure (table contains all measurement, one measurement and value per row, field name and his value is specified in a column)
 	FieldHost        string
 	FieldName        string
 	FieldValue       string
 	FieldDatabase    string
 	FieldMeasurement string
+	
 	//
 	NullAsZero        bool
 	IgnoreOtherFields bool
 	Sanitize          bool
 	IgnoreRowErrors   bool
 	ParseTagsOnce     bool
-	//
-	QueryScript string
-	//	Parameters  []string //TODO
+
 
 	// -------- internal data -----------
 	statements []*sql.Stmt
@@ -128,13 +134,15 @@ type Query struct {
 	tag_count int
 	tag_idx   []int //Column indexes of tags (strings)
 
+	// Verical structure
 	field_host_idx        int
 	field_database_idx    int
 	field_measurement_idx int
 	field_name_idx        int
+	field_timestamp_idx   int
+	// Data Conversion
 	field_value_idx       int
 	field_value_type      int
-	field_timestamp_idx   int
 
 	last_poll_ts time.Time
 
@@ -147,10 +155,9 @@ type Sql struct {
 
 	KeepConnection bool
 
-	Servers []string
-
-	Hosts   []string
-	DbNames []string
+	DbSourceNames []string	// the connection strings
+	Servers []string		// for iterate same queries on different dbservers with same connection string
+	Hosts   []string 		// for tags
 
 	Query []Query
 
@@ -242,20 +249,15 @@ type DSN struct {
 //}
 
 func (s *Sql) Init() error {
-	Debug = s.Debug
 
-	if Debug {
-		log.Printf("I! Init %d servers %d queries, driver %s", len(s.Servers), len(s.Query), s.Driver)
-	}
+	log.Printf("D! Init %d servers %d queries, driver %s", len(s.Servers), len(s.Query), s.Driver)
 
 	if len(s.SharedLib) > 0 {
 		_, err := plugin.Open(s.SharedLib)
 		if err != nil {
 			panic(err)
 		}
-		if Debug {
-			log.Printf("I! Loaded shared lib '%s'", s.SharedLib)
-		}
+		log.Printf("D! Loaded shared lib '%s'", s.SharedLib)
 	}
 
 	if s.KeepConnection {
@@ -264,6 +266,7 @@ func (s *Sql) Init() error {
 			s.Query[i].statements = make([]*sql.Stmt, len(s.Servers))
 		}
 	}
+	
 	//	for i := 0; i < len(s.Servers); i++ {
 	//		c, err := ParseDSN(s.Servers[i])
 	//		if err == nil {
@@ -281,11 +284,12 @@ func (s *Sql) Init() error {
 	//		//				addr, err := net.LookupHost("198.252.206.16")
 	//
 	//	}
+	
 	if len(s.Servers) > 0 && len(s.Hosts) > 0 && len(s.Hosts) != len(s.Servers) {
 		return fmt.Errorf("For each server a host should be specified (%d/%d)", len(s.Hosts), len(s.Servers))
 	}
-	if len(s.Servers) > 0 && len(s.DbNames) > 0 && len(s.DbNames) != len(s.Servers) {
-		return fmt.Errorf("For each server a db name should be specified (%d/%d)", len(s.DbNames), len(s.Servers))
+	if len(s.Servers) > 0 && len(s.DbSourceNames) > 0 && len(s.DbSourceNames) != len(s.Servers) {
+		return fmt.Errorf("For each server a db name should be specified (%d/%d)", len(s.DbSourceNames), len(s.Servers))
 	}
 	return nil
 }
@@ -294,9 +298,7 @@ func (s *Query) Init(cols []string) error {
 	qindex++
 	s.index = qindex
 
-	if Debug {
-		log.Printf("I! Init Query %d with %d columns", s.index, len(cols))
-	}
+	log.Printf("D! Init Query %d with %d columns", s.index, len(cols))
 
 	//Define index of tags and fields and keep it for reuse
 	s.column_name = cols
@@ -324,6 +326,7 @@ func (s *Query) Init(cols []string) error {
 	s.tag_count = 0
 	s.field_count = 0
 
+	// Vertical structure
 	// prepare vars for vertical counter parsing
 	s.field_name_idx = -1
 	s.field_value_idx = -1
@@ -353,6 +356,7 @@ func (s *Query) Init(cols []string) error {
 	if (len(s.FieldValue) > 0 && len(s.FieldName) == 0) || (len(s.FieldName) > 0 && len(s.FieldValue) == 0) {
 		return fmt.Errorf("Both field_name and field_value should be set")
 	}
+	//------------
 
 	// fill columns info
 	var cell interface{}
@@ -366,6 +370,7 @@ func (s *Query) Init(cols []string) error {
 			s.tag_count++
 			//			cell = new(sql.RawBytes)
 			cell = new(string)
+// Explicit datatype conversion
 		} else if match_str(s.column_name[i], s.IntFields) {
 			dest_type = TYPE_INT
 			cell = new(sql.RawBytes)
@@ -382,6 +387,8 @@ func (s *Query) Init(cols []string) error {
 			dest_type = TYPE_BOOL
 			//				cell = new(bool);
 			cell = new(sql.RawBytes)
+// -------	
+
 		} else if match_str(s.column_name[i], s.FieldCols) {
 			dest_type = TYPE_AUTO
 			cell = new(sql.RawBytes)
@@ -400,7 +407,8 @@ func (s *Query) Init(cols []string) error {
 		if Debug && !field_matched {
 			log.Printf("I! Column %d '%s' dest type  %d", i, s.column_name[i], dest_type)
 		}
-
+		
+		// Vertical structure
 		if s.column_name[i] == s.FieldHost {
 			s.field_host_idx = i
 			field_matched = false
@@ -426,6 +434,7 @@ func (s *Query) Init(cols []string) error {
 			s.field_timestamp_idx = i
 			field_matched = false
 		}
+		//---------
 
 		if field_matched {
 			s.field_type[s.field_count] = dest_type
@@ -436,9 +445,7 @@ func (s *Query) Init(cols []string) error {
 		s.cell_refs[i] = &s.cells[i]
 	}
 
-	if Debug {
-		log.Printf("I! Query structure with %d tags and %d fields on %d columns...", s.tag_count, s.field_count, col_count)
-	}
+	log.Printf("D! Query structure with %d tags and %d fields on %d columns...", s.tag_count, s.field_count, col_count)
 
 	return nil
 }
@@ -454,9 +461,7 @@ func ConvertString(name string, cell interface{}) (string, bool) {
 			if !ok {
 				value = fmt.Sprintf("%v", cell)
 				ok = true
-				if Debug {
-					log.Printf("W! converting '%s' type %s raw data '%s'", name, reflect.TypeOf(cell).Kind(), fmt.Sprintf("%v", cell))
-				}
+				log.Printf("W! converting '%s' type %s raw data '%s'", name, reflect.TypeOf(cell).Kind(), fmt.Sprintf("%v", cell))
 			} else {
 				value = strconv.FormatInt(ivalue, 10)
 			}
@@ -866,10 +871,10 @@ func (p *Sql) Gather(acc telegraf.Accumulator) error {
 					}
 				}
 				// add dbname tag
-				if len(p.DbNames) > 0 {
+				if len(p.DbSourceNames) > 0 {
 					_, ok := tags["dbname"]
 					if !ok {
-						tags["dbname"] = p.DbNames[si]
+						tags["dbname"] = p.DbSourceNames[si]
 					}
 				}
 
